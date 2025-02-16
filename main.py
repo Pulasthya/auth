@@ -1,14 +1,16 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
 import models, database, schemas, utils, auth
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
 models.Base.metadata.create_all(bind=database.engine)
 
-@app.post("/register", response_model=schemas.TokenData)
-def register(user_data: schemas.UserCreate, db: Session = Depends(database.get_db)):
+# @app.post("/register", response_model=schemas.TokenData)
+@app.post("/register")
+def register(user_data: schemas.UserCreate, request: Request, response: Response, db: Session = Depends(database.get_db)):
     existing_user = db.query(models.User).filter(models.User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -27,16 +29,23 @@ def register(user_data: schemas.UserCreate, db: Session = Depends(database.get_d
         age=user_data.age,
         role=user_data.role
     )
-    db.add(new_details)
 
-    db.commit()
+    device_info = request.headers.get("User-Agent", "Unknown device")
     
     # Generate tokens
     access_token = auth.create_access_token(user_data.email)
-    refresh_token = auth.create_refresh_token(user_data.email)
-    
-    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+    refresh_token = auth.create_refresh_token(db=db, user_id=user_data.email, device_info=device_info)
 
+    response = JSONResponse(content = {"message": "User registered successfully, tokens are set"})
+    response.status_code = 201
+
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, max_age=3600, samesite="Lax", domain=None, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, max_age=604800, samesite="Lax", domain=None, path="/")
+
+    db.add(new_details)
+    db.commit()
+
+    return response
 
 @app.post("/token", response_model=schemas.TokenData)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
