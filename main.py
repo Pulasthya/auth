@@ -42,6 +42,7 @@ def register(user_data: schemas.UserCreate, request: Request, response: Response
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, max_age=3600, samesite="Lax", domain=None, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, max_age=604800, samesite="Lax", domain=None, path="/")
 
+    # committing DB changes once the cookie has been set
     db.add(new_details)
     db.commit()
 
