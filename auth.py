@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import models, database, utils
+import uuid
 
 # Secret Key (Change for production)
 SECRET_KEY = "your_secret_key"
@@ -26,8 +27,23 @@ def create_token(data: dict, expires_delta: Optional[timedelta] = None):
 def create_access_token(email: str):
     return create_token({"sub": email}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
 
-def create_refresh_token(email: str):
-    return create_token({"sub": email}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+# def create_refresh_token(email: str):
+#     return create_token({"sub": email}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+
+def create_refresh_token(db: Session, user_id: int, device_info: str) -> str:
+    refresh_token = str(uuid.uuid4())
+    expires_at = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    session = models.UserSession(
+        user_id=user_id,
+        refresh_token=refresh_token,
+        device_info=device_info,
+        expires_at=expires_at
+    )
+    db.add(session)
+    # db.commit()
+    
+    return refresh_token
 
 def verify_token(token: str, credentials_exception):
     try:
