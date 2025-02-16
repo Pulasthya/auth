@@ -11,6 +11,7 @@ class User(Base):
 
     # Relationship to user details
     details = relationship("UserDetails", back_populates="user", uselist=False)
+    sessions = relationship("UserSession", cascade="all, delete-orphan")
 
 class UserDetails(Base):
     __tablename__ = "user_details"
