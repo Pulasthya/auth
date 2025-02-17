@@ -10,7 +10,7 @@ models.Base.metadata.create_all(bind=database.engine)
 
 # @app.post("/register", response_model=schemas.TokenData)
 @app.post("/register")
-def register(user_data: schemas.UserCreate, request: Request, response: Response, db: Session = Depends(database.get_db)):
+def register(user_data: schemas.UserCreate, request: Request, db: Session = Depends(database.get_db)):
     existing_user = db.query(models.User).filter(models.User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -30,35 +30,57 @@ def register(user_data: schemas.UserCreate, request: Request, response: Response
         role=user_data.role
     )
 
-    device_info = request.headers.get("User-Agent", "Unknown device")
+    # device_info = request.headers.get("User-Agent", "Unknown device")
     
-    # Generate tokens
-    access_token = auth.create_access_token(user_data.email)
-    refresh_token = auth.create_refresh_token(db=db, user_id=user_data.email, device_info=device_info)
+    # # Generate tokens
+    # access_token = auth.create_access_token(user_data.email)
+    # refresh_token = auth.create_refresh_token(db=db, user_id=user_data.email, device_info=device_info)
 
-    response = JSONResponse(content = {"message": "User registered successfully, tokens are set"})
+    response = JSONResponse(content = {"message": "User registered successfully, please login to continue"})
     response.status_code = 201
 
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, max_age=3600, samesite="Lax", domain=None, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, max_age=604800, samesite="Lax", domain=None, path="/")
+    # response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, max_age=3600, samesite="Lax", domain=None, path="/")
+    # response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, max_age=604800, samesite="Lax", domain=None, path="/")
 
-    # committing DB changes once the cookie has been set
+    # # committing DB changes once the cookie has been set
     db.add(new_details)
     db.commit()
 
     return response
 
-@app.post("/token", response_model=schemas.TokenData)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
+@app.post("/login")
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
+    access_token = request.cookies.get("access_token")
+
+    if access_token: 
+        if auth.verify_token(access_token, HTTPException(status_code=403, detail="Invalid access token")):
+            return JSONResponse(
+                content={"message": "User already logged in", "token_type": "bearer"},
+                status_code=200
+            )
+        else:
+            # In frontend, you can handle this trying to generate a new access token if refresh token is valid else redirect to login page
+            raise HTTPException(status_code=403, detail="Invalid access token")
+
     user = db.query(models.User).filter(models.User.email == form_data.username).first()
     
     if not user or not utils.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    access_token = auth.create_access_token(user.email)
-    refresh_token = auth.create_refresh_token(user.email)
+    device_info = request.headers.get("User-Agent", "Unknown device")
     
-    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+    access_token = auth.create_access_token(user.email)
+    refresh_token = auth.create_refresh_token(db=db, user_id=form_data.username, device_info=device_info)
+
+    response = JSONResponse(content = {"message": "User successfully logged in. Tokens are set", "token_type": "bearer"})
+    response.status_code = 201
+
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, max_age=3600, samesite="Lax", domain=None, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, max_age=604800, samesite="Lax", domain=None, path="/")
+
+    db.commit()
+    
+    return response
 
 @app.post("/refresh", response_model=schemas.TokenData)
 def refresh_token(token: str, db: Session = Depends(database.get_db)):
