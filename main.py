@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import models, database, schemas, utils, auth
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
+from datetime import datetime, timedelta
 
 app = FastAPI()
 
@@ -82,14 +83,38 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     
     return response
 
-@app.post("/refresh", response_model=schemas.TokenData)
-def refresh_token(token: str, db: Session = Depends(database.get_db)):
-    email = auth.verify_token(token, HTTPException(status_code=403, detail="Invalid refresh token"))
+@app.post("/refresh")
+def refresh_token(response: Response, request: Request, db: Session = Depends(database.get_db)):
+    refresh_token = request.cookies.get("refresh_token")
+    device_info = request.headers.get("User-Agent", "Unknown device")
+
+    if not refresh_token:
+        raise HTTPException(status_code=403, detail="No refresh token found")
     
-    new_access_token = auth.create_access_token(email)
-    new_refresh_token = auth.create_refresh_token(email)
+    user_sessions = db.query(models.UserSession).filter(
+        models.UserSession.device_info == device_info
+    ).all()
+
+    cur_session = None
+
+    for session in user_sessions:
+        if session.expires_at > datetime.utcnow():
+            cur_session = session
+        else:
+            db.delete(session)
+
+    db.commit()
+    if not cur_session:
+        # You can also redirect to login page here
+        raise HTTPException(status_code=403, detail="No valid refresh token found. Please log in again.")
     
-    return {"access_token": new_access_token, "refresh_token": new_refresh_token, "token_type": "bearer"}
+    access_token = auth.create_access_token(cur_session.user_id)
+
+    response = JSONResponse(content = {"message": "Token refreshed successfully", "token_type": "bearer"})
+    response.status_code = 201
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, max_age=3600, samesite="Lax", domain=None, path="/")
+
+    return response
 
 @app.get("/protected")
 def protected_route(current_user: models.User = Depends(auth.get_current_user)):
