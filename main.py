@@ -88,6 +88,8 @@ def refresh_token(response: Response, request: Request, db: Session = Depends(da
     refresh_token = request.cookies.get("refresh_token")
     device_info = request.headers.get("User-Agent", "Unknown device")
 
+    # print(request.cookies)
+
     if not refresh_token:
         raise HTTPException(status_code=403, detail="No refresh token found")
     
